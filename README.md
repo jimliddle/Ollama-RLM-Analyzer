@@ -9,7 +9,7 @@ This implementation:
 
 ✅ Each chunk gets its own LLM call with fresh context (in this case not to avoid context rot but because the context window in local LLM's is much smaller)
 
-✅ Extraction Prompt with fact assertion + verifed / inferred behaviour
+✅ Extraction Prompt with fact assertion + verifed / inferred behaviour (the extraction prompt is editable)
 
 ✅ Synthesis Prompt combines all extracted facts
 
