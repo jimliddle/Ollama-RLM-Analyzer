@@ -3,10 +3,16 @@ Although this is not an RLM analyzer as per the recent MIT white paper, this imp
 
 This implementation:
 
+✅ Uses the model to analyze the objective and makes recommendations if it is too narrow
+
 ✅ Break context into manageable pieces using chunking
+
 ✅ Each chunk gets its own LLM call with fresh context (in this case not to avoid context rot but because the context window in local LLM's is much smaller)
+
 ✅ Extraction Prompt with fact assertion + verifed / inferred behaviour
+
 ✅ Synthesis Prompt combines all extracted facts
+
 ✅ Confidence rating at the end
 
 The REPL and code execution in the paper are implementation mechanisms, not the core insight which is  "Don't feed the whole thing to the model at once. Let it process pieces independently, then combine."
