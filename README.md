@@ -1,5 +1,5 @@
 
-Although this is not an RLM analyzer as per the recent MIT white paper, this implementation tries to honour the spirit of the RLM paper for a local Ollama model implementation
+Although this is not an RLM analyzer as per the recent MIT white paper, this implementation tries to honour the spirit of the RLM paper (https://arxiv.org/pdf/2512.24601v1) for a local Ollama model implementation
 
 This implementation:
 
@@ -30,6 +30,8 @@ From the paper:
 "Even without sub-calling capabilities, our ablation of the RLM is able to scale beyond the context limit of the model, and outperform the base model and other task-agnostic baselines on most long context settings."
 
 This approach is analagous to this.
+
+All state is stored in the browser and the app will try and detect a running local ollama instance (but all origins needs to be set).
 
 The animated demo below shows an analyis of a sample tender downloaded from the web, using the Gemma3:7B model
 
