@@ -31,7 +31,14 @@ From the paper:
 
 This approach is analagous to this.
 
-All state is stored in the browser and the app will try and detect a running local ollama instance (but all origins needs to be set). The App can be run directly at: https://jimliddle.github.io/Ollama-RLM-Analyzer/
+All state is stored in the browser and the app will try and detect a running local ollama instance. The App can be run directly at: https://jimliddle.github.io/Ollama-RLM-Analyzer/
+
+For the web page to detect Ollama and bypass CORS you need OLLAM_ORIGINS to be set ie.
+
+# Allow all origins and listen on all interfaces
+export OLLAMA_ORIGINS="*"
+export OLLAMA_HOST="0.0.0.0:11434"   # optional; use if not only localhost
+ollama serve
 
 The animated demo below shows an analyis of a sample tender downloaded from the web, using the Gemma3:7B model
 
