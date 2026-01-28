@@ -41,6 +41,7 @@ export OLLAMA_HOST="0.0.0.0:11434"   # optional; use if not only localhost
 ollama serve
 </code>
 
+
 The animated demo below shows an analyis of a sample tender downloaded from the web, using the Gemma3:7B model
 
 ![RLM_Explorer_ani_gif](https://github.com/user-attachments/assets/48d43704-1aec-48f6-a3e2-8fffa71981e6)
