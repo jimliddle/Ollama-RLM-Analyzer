@@ -23,7 +23,7 @@ We are using a Fact Assertion pattern to aske the model:
 2. Qualify its confidence
 3. Distinguish between direct evidence and inference
 
-THis is a form of reasoning and verification which is not as dynamic as code execution, but it's there.
+This is a form of reasoning and verification which is not as dynamic as code execution, but it's there.
 
 From the paper:
 
@@ -41,7 +41,7 @@ export OLLAMA_HOST="0.0.0.0:11434"   # optional; use if not only localhost
 ollama serve
 </code>
 
-
+<br/><br/>
 The animated demo below shows an analyis of a sample tender downloaded from the web, using the Gemma3:7B model
 
 ![RLM_Explorer_ani_gif](https://github.com/user-attachments/assets/48d43704-1aec-48f6-a3e2-8fffa71981e6)
