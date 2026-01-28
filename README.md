@@ -35,10 +35,11 @@ All state is stored in the browser and the app will try and detect a running loc
 
 For the web page to detect Ollama and bypass CORS you need OLLAM_ORIGINS to be set ie.
 
-# Allow all origins and listen on all interfaces
+<code>
 export OLLAMA_ORIGINS="*"
 export OLLAMA_HOST="0.0.0.0:11434"   # optional; use if not only localhost
 ollama serve
+</code>
 
 The animated demo below shows an analyis of a sample tender downloaded from the web, using the Gemma3:7B model
 
