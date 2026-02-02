@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Closed-Loop RLM Explorer + Prompt Lab</title>
+    <title>Closed-Loop RLM Explorer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
@@ -205,7 +205,7 @@
                         <span class="phase-badge bg-indigo-500 text-white">Objective Refiner</span>
                         <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Cognitive Suggestion</div>
                     </div>
-                    <div id="suggestionText" class="text-sm text-slate-300 mb-4 italic leading-relaxed"></div>
+                    <div id="suggestionText" class="text-sm text-slate-300 mb-4 italic leading-relaxed max-h-64 overflow-y-auto custom-scrollbar pr-2"></div>
                     <div class="flex gap-2">
                         <button id="applyRefinementBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-2 rounded-lg">Apply Suggestion</button>
                         <button id="skipRefinementBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-bold px-4 py-2 rounded-lg">Skip & Run Original</button>
