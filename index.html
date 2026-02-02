@@ -509,7 +509,7 @@ If accurate, say "VERIFICATION COMPLETE."`
             };
         }
 
-        async function deleteSession(id) { if(confirm("Delete analysis?")) { db.transaction(["sessions"], "readwrite").objectStore("sessions").delete(id).oncomplete = loadHistory; } }
+        async function deleteSession(id) { if(confirm("Delete analysis?")) { db.transaction(["sessions"], "readwrite").objectStore("sessions").delete(id).onsuccess = loadHistory; } }
         async function renameSession(id, old) { 
             const n = prompt("Rename analysis title:", old); 
             if(n && n !== old) { 
