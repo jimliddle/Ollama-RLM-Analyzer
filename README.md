@@ -64,7 +64,7 @@ The page has loaded, but either Ollama refused the request or the browser blocke
    <code>curl -i -H "Origin: https://jimliddle.github.io" http://localhost:11434/api/tags</code>
 
    A 403 means `OLLAMA_ORIGINS` is not set for the copy of Ollama that is running. Set it and restart Ollama:
-   - Mac: quit Ollama from the menu bar, run `launchctl setenv OLLAMA_ORIGINS "https://jimliddle.github.io"`, then start it again (this merely lets the hosted web page access the local Ollama. There is no server side state, everything is stored in the browser, so it is still private).
+   - Mac: quit Ollama from the menu bar, run `launchctl setenv OLLAMA_ORIGINS "https://jimliddle.github.io"`, then start it again (this merely lets the hosted web page access the local Ollama. There is no server side state, everything is stored in the client browser, so it is still private).
    - Windows: add `OLLAMA_ORIGINS` as a user environment variable, quit Ollama from the system tray, then start it again.
    - Linux with systemd: run `sudo systemctl edit ollama`, add `Environment="OLLAMA_ORIGINS=https://jimliddle.github.io"` under `[Service]`, then `sudo systemctl restart ollama`.
 3. **Does the browser allow it?** If the curl command returns 200 and the page still fails, the browser is stopping a public web page from reaching localhost. Brave blocks this by default and recent versions of Chrome ask for permission to access the local network. Allow it for the site in the browser's site settings, or run a local copy as described above.
