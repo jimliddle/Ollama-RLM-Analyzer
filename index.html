@@ -3,11 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Closed-Loop RLM Explorer</title>
+    <title>Closed Loop RLM Analyzer</title>
+    <script>
+        // Show script and library-loading errors on the page itself, so a failure is visible without the console.
+        function showPageError(msg) {
+            if (!document.body) { document.addEventListener('DOMContentLoaded', () => showPageError(msg)); return; }
+            let box = document.getElementById('pageErrors');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'pageErrors';
+                box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#7f1d1d;color:#fecaca;font:12px/1.5 monospace;padding:8px 12px;max-height:40vh;overflow:auto';
+                document.body.appendChild(box);
+            }
+            const line = document.createElement('div');
+            line.textContent = msg;
+            box.appendChild(line);
+        }
+        window.addEventListener('error', (e) => {
+            const el = e.target;
+            if (el && el !== window && (el.src || el.href)) showPageError('Could not load ' + (el.src || el.href));
+            else if (e.message) showPageError('Script error: ' + e.message + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+        }, true);
+        window.addEventListener('unhandledrejection', (e) => {
+            const r = e.reason;
+            if (r && r.name === 'AbortError') return;
+            showPageError('Script error: ' + (r && r.message ? r.message : String(r)));
+        });
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
         
@@ -52,6 +80,23 @@
             text-transform: uppercase;
             font-weight: 800;
         }
+
+        /* Rendered model output (markdown) */
+        .md h1, .md h2 { color: #818cf8; font-weight: 700; font-size: 1.1rem; margin: 1.5rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid #1e293b; }
+        .md h3, .md h4, .md h5, .md h6 { color: #60a5fa; font-weight: 700; font-size: 0.9rem; text-transform: uppercase; margin: 1rem 0 0.25rem; }
+        .md p { margin: 0.5rem 0; line-height: 1.65; }
+        .md ul { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
+        .md ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+        .md li { margin: 0.2rem 0; line-height: 1.6; }
+        .md strong, .md b { color: #fff; }
+        .md code { font-family: 'Fira Code', monospace; font-size: 0.85em; background: #1e293b; padding: 0.1em 0.35em; border-radius: 4px; }
+        .md pre { background: #0f172a; padding: 0.75rem; border-radius: 8px; overflow-x: auto; margin: 0.75rem 0; }
+        .md pre code { background: none; padding: 0; }
+        .md blockquote { border-left: 3px solid #334155; padding-left: 0.75rem; color: #94a3b8; margin: 0.5rem 0; }
+        .md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.85rem; }
+        .md th, .md td { border: 1px solid #334155; padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+        .md th { background: #1e293b; color: #fff; }
+        .md hr { border-color: #1e293b; margin: 1rem 0; }
     </style>
 </head>
 <body class="h-screen flex overflow-hidden">
@@ -62,6 +107,7 @@
             <div>
                 <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">Ollama RLM Analyzer</h1>
                 <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">A local programmatic RLM implementation</p>
+                <p id="buildStamp" class="text-[9px] text-slate-600 font-mono mt-1">build 2026-10-11.4</p>
             </div>
             <button onclick="toggleSidebar()" class="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all" title="Hide Sidebar">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
@@ -111,7 +157,7 @@
                     <textarea id="lab_refiner" class="w-full h-24 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs font-mono focus:border-indigo-500 focus:outline-none"></textarea>
                 </div>
                 <div class="space-y-2">
-                    <label class="block text-[10px] uppercase font-bold text-slate-400">2. Extraction Prompt <span class="text-indigo-400 lowercase italic">({OBJECTIVE}, {CHUNK})</span></label>
+                    <label class="block text-[10px] uppercase font-bold text-slate-400">2. Extraction Prompt <span class="text-indigo-400 lowercase italic">({OBJECTIVE}, {CHUNK}) &middot; answered as JSON facts, each quote is checked against the document</span></label>
                     <textarea id="lab_extraction" class="w-full h-32 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs font-mono focus:border-indigo-500 focus:outline-none"></textarea>
                 </div>
                 <div class="space-y-2">
@@ -121,6 +167,10 @@
                 <div class="space-y-2">
                     <label class="block text-[10px] uppercase font-bold text-slate-400">4. Audit & Verification Prompt <span class="text-indigo-400 lowercase italic">({DRAFT}, {FACTS})</span></label>
                     <textarea id="lab_audit" class="w-full h-32 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs font-mono focus:border-indigo-500 focus:outline-none"></textarea>
+                </div>
+                <div class="space-y-2">
+                    <label class="block text-[10px] uppercase font-bold text-slate-400">5. Merge Prompt <span class="text-indigo-400 lowercase italic">({OBJECTIVE}, {DRAFTS}) &middot; used when the report is drafted in parts or the audit finds corrections</span></label>
+                    <textarea id="lab_merge" class="w-full h-32 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs font-mono focus:border-indigo-500 focus:outline-none"></textarea>
                 </div>
             </div>
 
@@ -160,6 +210,22 @@
                 <div>
                     <label class="block text-[10px] uppercase font-bold text-slate-500 mb-2">Chunk Size (Chars)</label>
                     <input id="chunkSize" type="number" value="6000" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-2">Chunk Overlap (Chars)</label>
+                    <input id="chunkOverlap" type="number" value="500" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-2">Context Window (Tokens, sent as num_ctx)</label>
+                    <input id="numCtx" type="number" value="16384" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-2">Thinking (Reasoning Models)</label>
+                    <select id="thinkMode" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 appearance-none">
+                        <option value="default">Model default</option>
+                        <option value="on">On</option>
+                        <option value="off">Off (faster, leaves more room for the answer)</option>
+                    </select>
                 </div>
                 <div class="pt-4"><button onclick="closeSettings()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all">Apply Configuration</button></div>
             </div>
@@ -242,6 +308,7 @@
                         <span id="statusText">Active...</span>
                     </div>
                     <div class="flex-1"></div>
+                    <button id="cancelBtn" onclick="cancelRun()" class="hidden mr-3 bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-3 rounded-xl font-bold border border-slate-700 transition-all">Cancel</button>
                     <button id="runBtn" onclick="initiateRLM()" class="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white px-8 py-3 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg shadow-blue-950/40 flex items-center gap-2">
                         <span>Execute Pipeline</span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 17 5-5-5-5"/><path d="M6 17l5-5-5-5"/></svg>
@@ -252,21 +319,21 @@
     </main>
 
     <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+        if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
         // --- HARDCODED BASELINE DEFAULTS ---
         const DEFAULTS = {
-            refiner: `Analyze this objective for a document audit. 
+            refiner: `Analyze this objective for a document audit.
 Check if it is too narrow (causing lazy output) or too broad (causing vague output).
 === OBJECTIVE ===
 {OBJECTIVE}
 
 === PROTOCOL ===
-If the objective is optimal, say "OBJECTIVE_OK". 
-Otherwise, provide a single improved version starting with "Suggestion:". 
+If the objective is optimal, say "OBJECTIVE_OK".
+Otherwise, provide a single improved version starting with "Suggestion:".
 Include a brief critique.`,
             extraction: `You are a High-Fidelity Information Extractor.
-Process this segment of the document.
+Process this segment of the document and extract only what the objective asks for. Skip background, context and anything the objective does not ask about.
 === OBJECTIVE ===
 {OBJECTIVE}
 
@@ -274,14 +341,15 @@ Process this segment of the document.
 {CHUNK}
 
 === PROTOCOL ===
-EXTRACT technical data, names, and complete lists verbatim. 
-- IMPORTANT: If a list exists (e.g. Member States), extract it IN FULL exactly as it appears. 
-- Do not paraphrase requirements. Quote verbatim.
+Answer in JSON: {"facts": [{"statement": "...", "quote": "...", "basis": "stated"}]}
+- statement: one fact, requirement or data point that can be understood on its own. Put the actual dates, times, amounts, percentages, names and reference numbers in it, exactly as written. Never replace a value with words like "a specific deadline" or "the required amount".
+- IMPORTANT: If a list exists (e.g. Member States), give it IN FULL exactly as it appears.
+- quote: the words from the SEGMENT that support the statement, copied character for character. A short span is enough. Do not reword it and do not shorten it with "...". It is checked against the document automatically.
+- basis: "stated" if the segment says it directly, "inferred" if you are reading between the lines.
 - Treat blank fields, dotted lines, and form inputs as mandatory requirements (e.g. "The bank shall be:........" means bank details are required).
-- Label: [VERIFIED] / [INFERRED].
-Limit: 400 words.`,
-            consolidation: `You are a Document Consolidator. 
-Merge individual segment reports into a draft response. 
+- If nothing in the segment is relevant, answer {"facts": []}.`,
+            consolidation: `You are a Document Consolidator.
+Merge the extracted facts into a draft response.
 DO NOT FILTER. NO LOSS OF DETAIL.
 
 === OBJECTIVE ===
@@ -291,9 +359,12 @@ DO NOT FILTER. NO LOSS OF DETAIL.
 {FACTS}
 
 === PROTOCOL ===
-Synthesize into a final draft. Preserve technical names and verbatim lists.
+Each line is one fact: [ID] (location, status) statement | Quote: "the words from the document it rests on".
+Where a statement is vague, take the exact dates, amounts and names from its quote.
+VERIFIED means the supporting quote was found in the document. INFERRED is the extractor's own inference. UNMATCHED means the quote could not be found in the document, so treat it with caution and say so.
+Synthesize into a final draft. Preserve technical names and verbatim lists. Cite the fact IDs after each point, e.g. [F12].
 End with "Confidence: [HIGH/MEDIUM/LOW]" and a one-sentence justification.`,
-            audit: `You are a Document Auditor. 
+            audit: `You are a Document Auditor.
 Compare a DRAFT REPORT against the original RAW DATA.
 
 === DRAFT REPORT ===
@@ -305,19 +376,95 @@ Compare a DRAFT REPORT against the original RAW DATA.
 === PROTOCOL ===
 Identify any specific technical data, verbatim list items, or requirements present in the RAW DATA but missing or truncated in the DRAFT.
 If missing, provide it under "### AUDIT CORRECTIONS".
-If accurate, say "VERIFICATION COMPLETE."`
+If accurate, say "VERIFICATION COMPLETE."`,
+            merge: `You are a Document Consolidator.
+The report below was drafted in parts, and some parts are followed by audit corrections. Combine everything into one report.
+DO NOT FILTER. NO LOSS OF DETAIL.
+
+=== OBJECTIVE ===
+{OBJECTIVE}
+
+=== PARTS ===
+{DRAFTS}
+
+=== PROTOCOL ===
+Keep every distinct detail, figure, name and list item. Work each AUDIT CORRECTIONS item into the place where it belongs. Remove only exact repetition. Keep the [F..] fact citations.
+End with "Confidence: [HIGH/MEDIUM/LOW]" and a one-sentence justification.`
         };
 
-        // --- CURRENT ACTIVE PROMPTS ---
-        let ACTIVE_PROMPTS = { ...DEFAULTS };
+        // Shape the extraction step must answer in (enforced by Ollama's structured outputs).
+        const FACT_SCHEMA = {
+            type: "object",
+            properties: {
+                facts: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            statement: { type: "string" },
+                            quote: { type: "string" },
+                            basis: { type: "string", enum: ["stated", "inferred"] }
+                        },
+                        required: ["statement", "quote", "basis"]
+                    }
+                }
+            },
+            required: ["facts"]
+        };
 
-        let currentExtractedText = "";
+        // --- CURRENT ACTIVE PROMPTS & CONFIG ---
+        let ACTIVE_PROMPTS = { ...DEFAULTS };
+        const CONFIG_DEFAULTS = { url: "http://localhost:11434", model: "", chunkSize: 6000, overlap: 500, numCtx: 16384, think: "default", v: 2 };
+        let CONFIG = { ...CONFIG_DEFAULTS };
+
+        let currentDoc = null;      // { name, text, pages: [{ page, start, end }] | null }
+        let RUN = null;             // state of the analysis in progress
         let isSidebarOpen = true;
+
+        const $ = (id) => document.getElementById(id);
+
+        // --- TEXT HELPERS ---
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // Fill {PLACEHOLDERS} in one pass. A replacer function is used so "$&" and friends in
+        // the document are inserted literally, and inserted text is never scanned again.
+        function fill(template, vars) {
+            return template.replace(/\{([A-Z]+)\}/g, (m, key) => Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : m);
+        }
+
+        const MD_TAGS = ['p', 'br', 'hr', 'strong', 'b', 'em', 'i', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
+
+        // Model output is untrusted: render markdown, then keep formatting tags only (no links, images or scripts).
+        function renderMarkdown(text) {
+            if (window.marked && window.DOMPurify) {
+                try {
+                    // raw HTML in the text (e.g. markup quoted from the document) is shown as text, not dropped
+                    const renderer = { html: (t) => escapeHtml(typeof t === 'string' ? t : (t.raw || t.text || '')) };
+                    const html = new marked.Marked({ gfm: true, breaks: true, renderer }).parse(String(text));
+                    return DOMPurify.sanitize(html, { ALLOWED_TAGS: MD_TAGS, ALLOWED_ATTR: [] });
+                } catch (e) { /* fall through to plain text */ }
+            }
+            return escapeHtml(text).replace(/\n/g, '<br>');
+        }
+
+        function cyrb53(str, seed = 0) {
+            let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+            for (let i = 0; i < str.length; i++) {
+                const ch = str.charCodeAt(i);
+                h1 = Math.imul(h1 ^ ch, 2654435761);
+                h2 = Math.imul(h2 ^ ch, 1597334677);
+            }
+            h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+            h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+            return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+        }
 
         // UI HELPERS
         function toggleSidebar() {
-            const sidebar = document.getElementById('sidebarContainer');
-            const openBtn = document.getElementById('sidebarOpenBtn');
+            const sidebar = $('sidebarContainer');
+            const openBtn = $('sidebarOpenBtn');
             isSidebarOpen = !isSidebarOpen;
             if (isSidebarOpen) {
                 sidebar.style.width = "20rem";
@@ -331,56 +478,83 @@ If accurate, say "VERIFICATION COMPLETE."`
         }
 
         function resetWorkspace() {
-            document.getElementById('fileInput').value = "";
-            document.getElementById('filePreview').classList.add('hidden');
-            document.getElementById('sourceInput').value = "";
-            document.getElementById('objectiveInput').value = "";
-            document.getElementById('welcomeScreen').classList.remove('hidden');
-            document.getElementById('activeResponse').classList.add('hidden');
-            document.getElementById('activeResponse').innerHTML = '';
-            document.getElementById('refinementCard').classList.add('hidden');
-            currentExtractedText = "";
-            document.getElementById('outputArea').scrollTo({ top: 0, behavior: 'smooth' });
+            cancelRun();
+            $('fileInput').value = "";
+            $('filePreview').classList.add('hidden');
+            $('sourceInput').value = "";
+            $('objectiveInput').value = "";
+            $('welcomeScreen').classList.remove('hidden');
+            $('activeResponse').classList.add('hidden');
+            $('activeResponse').innerHTML = '';
+            $('refinementCard').classList.add('hidden');
+            currentDoc = null;
+            $('outputArea').scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        function openSettings() { document.getElementById('settingsModal').classList.remove('hidden'); setTimeout(() => document.getElementById('settingsModal').classList.add('opacity-100'), 10); fetchModels(); }
-        function closeSettings() { document.getElementById('settingsModal').classList.remove('opacity-100'); setTimeout(() => document.getElementById('settingsModal').classList.add('hidden'), 300); }
+        function setBusy(busy, label) {
+            $('runBtn').disabled = busy;
+            $('cancelBtn').classList.toggle('hidden', !busy);
+            $('statusIndicator').classList.toggle('hidden', !busy);
+            if (label) $('statusText').innerText = label;
+        }
+
+        function cancelRun() {
+            if (!RUN) return;
+            RUN.abort.abort();
+            $('refinementCard').classList.add('hidden');
+            if (!RUN.active) { setBusy(false); RUN = null; }   // a running pipeline cleans up after itself
+        }
+
+        function applyConfigToForm() {
+            $('ollamaUrl').value = CONFIG.url;
+            $('chunkSize').value = CONFIG.chunkSize;
+            $('chunkOverlap').value = CONFIG.overlap;
+            $('numCtx').value = CONFIG.numCtx;
+            $('thinkMode').value = CONFIG.think;
+        }
+
+        function readConfigFromForm() {
+            const num = (id, fallback, min, max) => {
+                const n = parseInt($(id).value, 10);
+                return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+            };
+            CONFIG.url = $('ollamaUrl').value.trim().replace(/\/+$/, '') || CONFIG_DEFAULTS.url;
+            CONFIG.chunkSize = num('chunkSize', CONFIG_DEFAULTS.chunkSize, 500, 200000);
+            CONFIG.overlap = Math.min(num('chunkOverlap', CONFIG_DEFAULTS.overlap, 0, 50000), Math.floor(CONFIG.chunkSize / 4));
+            CONFIG.numCtx = num('numCtx', CONFIG_DEFAULTS.numCtx, 2048, 1048576);
+            CONFIG.think = ['on', 'off'].includes($('thinkMode').value) ? $('thinkMode').value : 'default';
+            if ($('modelSelect').value) CONFIG.model = $('modelSelect').value;
+            applyConfigToForm();
+            putSetting("config", CONFIG).catch(() => {});
+        }
+
+        function openSettings() { $('settingsModal').classList.remove('hidden'); setTimeout(() => $('settingsModal').classList.add('opacity-100'), 10); fetchModels(); }
+        function closeSettings() { readConfigFromForm(); $('settingsModal').classList.remove('opacity-100'); setTimeout(() => $('settingsModal').classList.add('hidden'), 300); }
+
+        const PROMPT_FIELDS = ['refiner', 'extraction', 'consolidation', 'audit', 'merge'];
 
         function openPromptLab() {
-            document.getElementById('lab_refiner').value = ACTIVE_PROMPTS.refiner;
-            document.getElementById('lab_extraction').value = ACTIVE_PROMPTS.extraction;
-            document.getElementById('lab_consolidation').value = ACTIVE_PROMPTS.consolidation;
-            document.getElementById('lab_audit').value = ACTIVE_PROMPTS.audit;
-            document.getElementById('promptLabModal').classList.remove('hidden');
-            setTimeout(() => document.getElementById('promptLabModal').classList.add('opacity-100'), 10);
+            PROMPT_FIELDS.forEach(k => { $('lab_' + k).value = ACTIVE_PROMPTS[k]; });
+            $('promptLabModal').classList.remove('hidden');
+            setTimeout(() => $('promptLabModal').classList.add('opacity-100'), 10);
         }
 
         function closePromptLab() {
-            document.getElementById('promptLabModal').classList.remove('opacity-100');
-            setTimeout(() => document.getElementById('promptLabModal').classList.add('hidden'), 300);
+            $('promptLabModal').classList.remove('opacity-100');
+            setTimeout(() => $('promptLabModal').classList.add('hidden'), 300);
         }
 
         async function saveLabPrompts() {
-            ACTIVE_PROMPTS.refiner = document.getElementById('lab_refiner').value;
-            ACTIVE_PROMPTS.extraction = document.getElementById('lab_extraction').value;
-            ACTIVE_PROMPTS.consolidation = document.getElementById('lab_consolidation').value;
-            ACTIVE_PROMPTS.audit = document.getElementById('lab_audit').value;
-            
-            const tx = db.transaction(["settings"], "readwrite");
-            tx.objectStore("settings").put({ id: "system_prompts", data: ACTIVE_PROMPTS });
-            tx.oncomplete = () => {
-                closePromptLab();
-                showToast("System prompts saved successfully.");
-            };
+            PROMPT_FIELDS.forEach(k => { ACTIVE_PROMPTS[k] = $('lab_' + k).value; });
+            try { await putSetting("system_prompts", ACTIVE_PROMPTS); } catch (e) { return showToast("Could not save prompts: " + e.message); }
+            closePromptLab();
+            showToast("System prompts saved successfully.");
         }
 
         function resetPromptsToDefault() {
             if(!confirm("Reset all prompts to baseline defaults?")) return;
             ACTIVE_PROMPTS = { ...DEFAULTS };
-            document.getElementById('lab_refiner').value = ACTIVE_PROMPTS.refiner;
-            document.getElementById('lab_extraction').value = ACTIVE_PROMPTS.extraction;
-            document.getElementById('lab_consolidation').value = ACTIVE_PROMPTS.consolidation;
-            document.getElementById('lab_audit').value = ACTIVE_PROMPTS.audit;
+            PROMPT_FIELDS.forEach(k => { $('lab_' + k).value = ACTIVE_PROMPTS[k]; });
             saveLabPrompts();
         }
 
@@ -393,33 +567,53 @@ If accurate, say "VERIFICATION COMPLETE."`
         }
 
         // FILE HANDLERS
-        async function handleFileSelect(event) {
+        function handleFileSelect(event) {
             const file = event.target.files[0];
-            if (!file) return;
-            document.getElementById('filePreview').classList.remove('hidden');
-            document.getElementById('fileName').innerText = file.name;
-            document.getElementById('fileStatus').innerText = "Parsing...";
-            try {
-                if (file.type === "application/pdf" || file.name.endsWith('.pdf')) currentExtractedText = await parsePDF(file);
-                else if (file.name.endsWith('.docx')) currentExtractedText = await parseDocx(file);
-                else currentExtractedText = await file.text();
-                const wordCount = currentExtractedText.trim().split(/\s+/).filter(Boolean).length;
-                document.getElementById('fileStatus').innerText = `${wordCount} words`;
-            } catch (err) { document.getElementById('fileStatus').innerText = "Error"; }
+            if (file) loadFile(file);
         }
 
-        function removeFile() { document.getElementById('filePreview').classList.add('hidden'); currentExtractedText = ""; }
+        async function loadFile(file) {
+            $('filePreview').classList.remove('hidden');
+            $('fileName').innerText = file.name;
+            $('fileStatus').innerText = "Parsing...";
+            try {
+                const lower = file.name.toLowerCase();
+                let doc;
+                if (file.type === "application/pdf" || lower.endsWith('.pdf')) doc = await parsePDF(file);
+                else if (lower.endsWith('.docx')) doc = { text: await parseDocx(file), pages: null };
+                else doc = { text: await file.text(), pages: null };
+                if (!doc.text.trim()) throw new Error("no text found");
+                currentDoc = { name: file.name, text: doc.text, pages: doc.pages };
+                const wordCount = doc.text.trim().split(/\s+/).filter(Boolean).length;
+                $('fileStatus').innerText = `${wordCount} words` + (doc.pages ? ` · ${doc.pages.length} pages` : '');
+            } catch (err) {
+                currentDoc = null;
+                $('fileStatus').innerText = "Error: " + (err.message || "could not read file");
+            }
+        }
 
+        function removeFile() { $('filePreview').classList.add('hidden'); $('fileInput').value = ""; currentDoc = null; }
+
+        // Keeps line breaks and records where each page starts, so facts can cite a page.
         async function parsePDF(file) {
+            if (!window.pdfjsLib) throw new Error("the PDF library did not load; check your connection and reload");
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             let text = "";
+            const pages = [];
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
                 const content = await page.getTextContent();
-                text += content.items.map(item => item.str).join(' ') + "\n";
+                let pageText = "";
+                for (const item of content.items) {
+                    if (typeof item.str !== 'string') continue;
+                    pageText += item.str + (item.hasEOL ? "\n" : "");
+                }
+                pageText = pageText.replace(/[ \t]+\n/g, "\n").trim();
+                pages.push({ page: i, start: text.length, end: text.length + pageText.length });
+                text += pageText + "\n\n";
             }
-            return text;
+            return { text, pages };
         }
 
         async function parseDocx(file) {
@@ -428,30 +622,43 @@ If accurate, say "VERIFICATION COMPLETE."`
             return result.value;
         }
 
+        // Dropping a file anywhere on the page attaches it.
+        function hasFiles(e) { return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'); }
+        window.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); $('sourceInput').classList.add('ring-2', 'ring-blue-500/60'); } });
+        window.addEventListener('dragleave', () => $('sourceInput').classList.remove('ring-2', 'ring-blue-500/60'));
+        window.addEventListener('drop', (e) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            $('sourceInput').classList.remove('ring-2', 'ring-blue-500/60');
+            if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+        });
+
         async function fetchModels() {
-            const url = document.getElementById('ollamaUrl').value.trim();
-            const select = document.getElementById('modelSelect');
-            const icon = document.getElementById('refreshIcon');
+            const url = $('ollamaUrl').value.trim().replace(/\/+$/, '');
+            const select = $('modelSelect');
+            const icon = $('refreshIcon');
+            const wanted = select.value || CONFIG.model;   // keep the current choice across refreshes
             icon.classList.add('animate-spin');
             try {
                 const response = await fetch(`${url}/api/tags`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 select.innerHTML = '';
-                data.models.forEach(m => {
+                (data.models || []).forEach(m => {
                     const opt = document.createElement('option');
                     opt.value = m.name; opt.innerText = m.name;
                     select.appendChild(opt);
                 });
-                updateModelBadge();
-                select.onchange = updateModelBadge;
+                if (wanted && Array.from(select.options).some(o => o.value === wanted)) select.value = wanted;
+                if (select.value) CONFIG.model = select.value;
             } catch (err) { select.innerHTML = '<option value="">Failed to fetch</option>'; }
-            finally { icon.classList.remove('animate-spin'); }
+            finally { icon.classList.remove('animate-spin'); updateModelBadge(); }
         }
 
         function updateModelBadge() {
-            const model = document.getElementById('modelSelect').value;
-            const badge = document.getElementById('headerModelBadge');
-            if (model && model !== 'Failed to fetch') {
+            const model = $('modelSelect').value;
+            const badge = $('headerModelBadge');
+            if (model) {
                 badge.innerText = model;
                 badge.classList.remove('hidden');
             } else {
@@ -460,33 +667,46 @@ If accurate, say "VERIFICATION COMPLETE."`
         }
 
         // --- DATABASE ---
-        let db;
-        const dbRequest = indexedDB.open("RLM_v10_LabDB", 1);
-        dbRequest.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains("sessions")) db.createObjectStore("sessions", { keyPath: "id", autoIncrement: true });
-            if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings", { keyPath: "id" });
-        };
-        dbRequest.onsuccess = (e) => { 
-            db = e.target.result; 
-            loadHistory(); 
-            // Load custom prompts
-            db.transaction("settings", "readonly").objectStore("settings").get("system_prompts").onsuccess = (ev) => {
-                if(ev.target.result) ACTIVE_PROMPTS = ev.target.result.data;
-            };
-        };
+        let db = null;
 
-        async function saveSession(source, objective, result, modelName) {
-            const transaction = db.transaction(["sessions"], "readwrite");
-            transaction.objectStore("sessions").add({ 
-                source: source.substring(0, 10000), objective, result, modelName, timestamp: new Date().toISOString() 
+        function openDb() {
+            return new Promise((resolve) => {
+                let req;
+                try { req = indexedDB.open("RLM_v10_LabDB", 1); } catch (e) { return resolve(null); }
+                req.onupgradeneeded = (e) => {
+                    const d = e.target.result;
+                    if (!d.objectStoreNames.contains("sessions")) d.createObjectStore("sessions", { keyPath: "id", autoIncrement: true });
+                    if (!d.objectStoreNames.contains("settings")) d.createObjectStore("settings", { keyPath: "id" });
+                };
+                req.onsuccess = (e) => resolve(e.target.result);
+                req.onerror = () => resolve(null);
             });
+        }
+
+        // Run one request in its own transaction; resolves with the request's result once it has committed.
+        function idb(storeName, mode, fn) {
+            return new Promise((resolve, reject) => {
+                if (!db) return resolve(undefined);
+                const tx = db.transaction([storeName], mode);
+                const req = fn(tx.objectStore(storeName));
+                tx.oncomplete = () => resolve(req ? req.result : undefined);
+                tx.onerror = tx.onabort = () => reject(tx.error || new Error("Storage error"));
+            });
+        }
+        const getSetting = (id) => idb("settings", "readonly", s => s.get(id)).then(r => r ? r.data : undefined);
+        const putSetting = (id, data) => idb("settings", "readwrite", s => s.put({ id, data }));
+        const deleteSetting = (id) => idb("settings", "readwrite", s => s.delete(id));
+
+        async function saveSession(session) {
+            try { await idb("sessions", "readwrite", s => s.add(session)); }
+            catch (e) { showToast("Could not save this analysis to history: " + e.message); }
             loadHistory();
         }
 
         function loadHistory() {
-            const list = document.getElementById('historyList');
+            const list = $('historyList');
             list.innerHTML = '';
+            if (!db) return;
             const store = db.transaction(["sessions"], "readonly").objectStore("sessions");
             store.openCursor(null, 'prev').onsuccess = (e) => {
                 const cursor = e.target.result;
@@ -496,35 +716,45 @@ If accurate, say "VERIFICATION COMPLETE."`
                     div.className = 'p-3 glass rounded-xl cursor-pointer hover:border-blue-500/50 transition-all border border-transparent group mb-2 relative overflow-hidden';
                     div.onclick = () => displaySession(data);
                     div.innerHTML = `
-                        <div class="text-[9px] text-slate-500 font-bold mb-0.5 uppercase tracking-tighter">${new Date(data.timestamp).toLocaleString()}</div>
-                        <div class="text-[9px] text-blue-400 font-mono mb-1 truncate">MODEL: ${data.modelName || 'Local'}</div>
-                        <div class="text-xs font-semibold text-slate-200 truncate pr-12">${data.objective}</div>
+                        <div class="text-[9px] text-slate-500 font-bold mb-0.5 uppercase tracking-tighter" data-f="time"></div>
+                        <div class="text-[9px] text-blue-400 font-mono mb-1 truncate" data-f="model"></div>
+                        <div class="text-xs font-semibold text-slate-200 truncate pr-12" data-f="objective"></div>
                         <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/80 p-1 rounded-lg">
-                            <button onclick="event.stopPropagation(); renameSession(${data.id}, '${data.objective.replace(/'/g, "\\'")}')" class="p-1 hover:text-blue-400 text-slate-400"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                            <button onclick="event.stopPropagation(); deleteSession(${data.id})" class="p-1 hover:text-red-400 text-slate-400"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                            <button data-f="rename" title="Rename" class="p-1 hover:text-blue-400 text-slate-400"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                            <button data-f="delete" title="Delete" class="p-1 hover:text-red-400 text-slate-400"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
                         </div>
                     `;
+                    const f = (name) => div.querySelector(`[data-f="${name}"]`);
+                    f('time').textContent = new Date(data.timestamp).toLocaleString();
+                    f('model').textContent = `MODEL: ${data.modelName || 'Local'}`;
+                    f('objective').textContent = data.objective;
+                    f('rename').onclick = (ev) => { ev.stopPropagation(); renameSession(data.id, data.objective); };
+                    f('delete').onclick = (ev) => { ev.stopPropagation(); deleteSession(data.id); };
                     list.appendChild(div); cursor.continue();
                 }
             };
         }
 
-        async function deleteSession(id) { if(confirm("Delete analysis?")) { db.transaction(["sessions"], "readwrite").objectStore("sessions").delete(id).onsuccess = loadHistory; } }
-        async function renameSession(id, old) { 
-            const n = prompt("Rename analysis title:", old); 
-            if(n && n !== old) { 
+        async function deleteSession(id) { if(confirm("Delete analysis?")) { await idb("sessions", "readwrite", s => s.delete(id)); loadHistory(); } }
+        async function renameSession(id, old) {
+            const n = prompt("Rename analysis title:", old);
+            if(n && n !== old) {
                 const s = db.transaction(["sessions"], "readwrite").objectStore("sessions");
-                s.get(id).onsuccess = (e) => { e.target.result.objective = n; s.put(e.target.result).oncomplete = loadHistory; };
-            } 
+                s.get(id).onsuccess = (e) => { e.target.result.objective = n; s.put(e.target.result).onsuccess = loadHistory; };
+            }
         }
 
-        function formatDisplay(text) {
-            return text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b class="text-white">$1</b>').replace(/### (.*?)(<br>|$)/g, '<h4 class="text-blue-400 font-bold mt-4 mb-1 uppercase tracking-tight">$1</h4>').replace(/## (.*?)(<br>|$)/g, '<h3 class="text-indigo-400 font-bold mt-6 mb-2 border-b border-slate-800 pb-1">$1</h3>');
+        async function clearHistory() {
+            if (!confirm("Delete all saved analyses?")) return;
+            await idb("sessions", "readwrite", s => s.clear());
+            loadHistory();
         }
 
+        // --- EXPORT ---
         function exportReport(obj, res, mod) {
             const blob = new Blob([`# RLM Report: ${obj}\nModel: ${mod}\n\n${res.replace(/<br>/g, '\n')}`], { type: 'text/markdown' });
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `RLM_Report.md`; a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
         function exportPDF(obj, res, mod) {
@@ -811,166 +1041,636 @@ If accurate, say "VERIFICATION COMPLETE."`
             doc.save('RLM_Report.pdf');
         }
 
-        function displaySession(session) {
-            document.getElementById('welcomeScreen').classList.add('hidden');
-            const c = document.getElementById('activeResponse');
-            c.classList.remove('hidden');
-            c.innerHTML = `
-                <div class="mb-12 p-6 glass rounded-2xl border-l-4 border-emerald-500 shadow-xl flex justify-between items-start">
-                    <div>
-                        <div class="text-[10px] uppercase font-bold text-slate-500 mb-2">Analysis Report</div>
-                        <div class="text-lg font-medium text-slate-100">${session.objective}</div>
-                        <div class="text-[10px] font-mono text-emerald-400 mt-2 italic tracking-widest uppercase">Executed via ${session.modelName || 'Local LLM'}</div>
+        // --- REPORT VIEW (shared by a finished run and the history) ---
+        const STATUS_STYLE = {
+            verified: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+            inferred: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+            unmatched: 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+        };
+
+        function factsHtml(facts) {
+            if (!facts.length) return '<div class="text-xs text-slate-500 italic">Nothing relevant in this segment.</div>';
+            return facts.map(f => `
+                <div class="py-2 border-b border-slate-800/60 last:border-0">
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                        <span class="font-mono text-[10px] text-slate-500">${escapeHtml(f.id)}</span>
+                        <span class="phase-badge border ${STATUS_STYLE[f.status] || ''}">${escapeHtml(f.status)}</span>
+                        <span class="text-[10px] text-slate-500">${escapeHtml(f.loc)}</span>
                     </div>
-                    <div class="flex gap-2">
-                        <button onclick='exportReport("${session.objective}", \`${session.result}\`, "${session.modelName}")' class="bg-slate-800 hover:bg-slate-700 text-xs px-4 py-2 rounded-lg transition-all flex items-center gap-2 border border-slate-700">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            Export MD
-                        </button>
-                        <button onclick='exportPDF("${session.objective}", \`${session.result}\`, "${session.modelName}")' class="bg-red-800/50 hover:bg-red-700/50 text-xs px-4 py-2 rounded-lg transition-all flex items-center gap-2 border border-red-700/50">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-                            Export PDF
-                        </button>
-                    </div>
-                </div>
-                <div class="prose prose-invert max-w-none text-slate-300 space-y-4">${formatDisplay(session.result)}</div>
-            `;
-            document.getElementById('outputArea').scrollTo({ top: 0, behavior: 'smooth' });
+                    <div class="text-sm text-slate-200">${escapeHtml(f.statement)}</div>
+                    ${f.quote ? `<div class="text-xs text-slate-500 italic mt-1">&ldquo;${escapeHtml(f.quote)}&rdquo;</div>` : ''}
+                </div>`).join('');
         }
 
-        async function callOllama(prompt, onChunk = null) {
-            const url = document.getElementById('ollamaUrl').value.trim();
-            const model = document.getElementById('modelSelect').value;
-            const response = await fetch(`${url}/api/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], stream: !!onChunk })
-            });
-            if (!response.ok) throw new Error("Connection failed.");
-            if (!onChunk) return (await response.json()).message.content;
+        function evidenceSummary(stats) {
+            const parts = [
+                `${stats.facts} facts from ${stats.chunks} chunks`,
+                `${stats.verified} verified (quote found in the document)`,
+                `${stats.inferred} inferred`,
+                `${stats.unmatched} unmatched (quote not found)`
+            ];
+            if (stats.failedChunks) parts.push(`${stats.failedChunks} chunks could not be read`);
+            return parts.join(' · ');
+        }
+
+        // Markdown for the export buttons: the report, then what it rests on.
+        function buildExportText(session) {
+            let out = session.result;
+            if (session.stats) out += `\n\n## Evidence\n\n${evidenceSummary(session.stats)}\n`;
+            if (session.warnings && session.warnings.length) out += `\n### Warnings\n\n${session.warnings.map(w => `- ${w}`).join('\n')}\n`;
+            if (session.facts && session.facts.length) {
+                const oneLine = (s) => String(s).replace(/\s+/g, ' ').trim();
+                out += `\n### Facts\n\n` + session.facts.map(f => `- ${f.id} (${f.loc}, ${f.status.toUpperCase()}) ${oneLine(f.statement)}` + (f.quote ? ` | Quote: "${oneLine(f.quote)}"` : '')).join('\n') + '\n';
+            }
+            return out;
+        }
+
+        function reportViewHtml(session) {
+            const warn = (session.warnings || []).map(w => `<li>${escapeHtml(w)}</li>`).join('');
+            return `
+                ${session.stats ? `<div class="text-xs text-slate-400 mb-4 font-mono">${escapeHtml(evidenceSummary(session.stats))}</div>` : ''}
+                ${warn ? `<div class="p-4 mb-6 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm text-amber-200/90"><div class="text-[10px] uppercase font-bold text-amber-400 mb-2">Warnings</div><ul class="list-disc pl-5 space-y-1">${warn}</ul></div>` : ''}
+                <div class="md text-slate-300">${renderMarkdown(session.result)}</div>
+                ${session.facts && session.facts.length ? `<details class="mt-8 p-4 glass rounded-xl"><summary class="cursor-pointer text-xs font-bold uppercase tracking-widest text-slate-400">Evidence: ${session.facts.length} facts</summary><div class="mt-3">${factsHtml(session.facts)}</div></details>` : ''}
+            `;
+        }
+
+        function exportButtons(session, compact) {
+            const wrap = document.createElement('div');
+            wrap.className = "flex gap-2 shrink-0";
+            const mk = (label, cls, fn) => {
+                const b = document.createElement('button');
+                b.className = cls; b.innerText = label; b.onclick = fn;
+                wrap.appendChild(b);
+            };
+            const size = compact ? "text-[10px] px-3 py-1 rounded" : "text-xs px-4 py-2 rounded-lg";
+            mk("Export MD", `bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 transition-all ${size}`, () => exportReport(session.objective, buildExportText(session), session.modelName));
+            mk("Export PDF", `bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 transition-all ${size}`, () => exportPDF(session.objective, buildExportText(session), session.modelName));
+            return wrap;
+        }
+
+        function displaySession(session) {
+            if (RUN && RUN.active) return showToast("An analysis is running. Cancel it before opening a saved one.");
+            $('welcomeScreen').classList.add('hidden');
+            const c = $('activeResponse');
+            c.classList.remove('hidden');
+            c.innerHTML = `
+                <div id="sessionHeader" class="mb-12 p-6 glass rounded-2xl border-l-4 border-emerald-500 shadow-xl flex justify-between items-start gap-4">
+                    <div>
+                        <div class="text-[10px] uppercase font-bold text-slate-500 mb-2">Analysis Report</div>
+                        <div class="text-lg font-medium text-slate-100">${escapeHtml(session.objective)}</div>
+                        <div class="text-[10px] font-mono text-emerald-400 mt-2 italic tracking-widest uppercase">Executed via ${escapeHtml(session.modelName || 'Local LLM')}</div>
+                    </div>
+                </div>
+                ${reportViewHtml(session)}
+            `;
+            $('sessionHeader').appendChild(exportButtons(session, false));
+            $('outputArea').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // --- OLLAMA ---
+        function estTokens(text) { return Math.ceil(text.length / RUN.cpt); }
+
+        // Largest context the model itself supports, if Ollama reports it.
+        async function modelContextLimit(model) {
+            try {
+                const r = await fetch(`${CONFIG.url}/api/show`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, name: model }), signal: RUN.abort.signal
+                });
+                if (!r.ok) return null;
+                const info = (await r.json()).model_info || {};
+                const key = Object.keys(info).find(k => k.endsWith('.context_length'));
+                return key && Number(info[key]) > 0 ? Number(info[key]) : null;
+            } catch (e) { if (e.name === 'AbortError') throw e; return null; }
+        }
+
+        // One fresh-context call. Always streamed, so a cancel takes effect at once.
+        // Returns { text, promptTruncated, outputTruncated, outputTokens, outputLimit, thinkingTokens }.
+        async function callOllama(prompt, { onChunk = null, onThink = null, format = null } = {}) {
+            const body = {
+                model: RUN.model,
+                messages: [{ role: "user", content: prompt }],
+                stream: true,
+                options: {
+                    temperature: 0,
+                    num_ctx: RUN.ctx,
+                    // stop before the window overflows, so Ollama reports a cut-off instead of sliding the context
+                    num_predict: Math.max(256, RUN.ctx - estTokens(prompt) - 32)
+                }
+            };
+            if (format) body.format = format;
+            if (CONFIG.think !== 'default') body.think = CONFIG.think === 'on';
+
+            let response;
+            try {
+                response = await fetch(`${CONFIG.url}/api/chat`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body), signal: RUN.abort.signal
+                });
+            } catch (e) {
+                if (e.name === 'AbortError') throw e;
+                throw new Error(`Cannot reach Ollama at ${CONFIG.url}. Check that it is running and that OLLAMA_ORIGINS allows this page.`);
+            }
+            if (!response.ok) {
+                let detail = "";
+                try { detail = (await response.json()).error; } catch (e) {}
+                throw new Error(detail || `Ollama returned HTTP ${response.status}.`);
+            }
+
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let fullText = "";
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                decoder.decode(value).split('\n').filter(Boolean).forEach(line => {
-                    try { const json = JSON.parse(line); if(json.message) { fullText += json.message.content; onChunk(json.message.content, fullText); } } catch(e) {}
-                });
+            let buffer = "", fullText = "", last = {}, thinkingChars = 0;
+            const handleLine = (line) => {
+                if (!line.trim()) return;
+                let json;
+                try { json = JSON.parse(line); } catch (e) { throw new Error("Unreadable response from Ollama."); }
+                if (json.error) throw new Error(json.error);
+                if (json.message && json.message.thinking) { thinkingChars += json.message.thinking.length; if (onThink) onThink(Math.round(thinkingChars / 4)); }
+                if (json.message && json.message.content) { fullText += json.message.content; if (onChunk) onChunk(json.message.content, fullText); }
+                if (json.done) last = json;
+            };
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    // a read can end mid-line or mid-character: keep the remainder for the next read
+                    buffer += decoder.decode(value, { stream: true });
+                    let nl;
+                    while ((nl = buffer.indexOf('\n')) !== -1) {
+                        handleLine(buffer.slice(0, nl));
+                        buffer = buffer.slice(nl + 1);
+                    }
+                }
+                handleLine(buffer + decoder.decode());
+            } finally { reader.cancel().catch(() => {}); }
+
+            const promptTokens = last.prompt_eval_count || 0;
+            if (promptTokens > 50) {
+                // learn how dense this model's tokens really are; only ever tighten the estimate
+                const measured = (prompt.length / promptTokens) * 0.9;
+                if (measured < RUN.cpt) RUN.cpt = Math.max(0.5, measured);
             }
-            return fullText;
+            // older servers leave the reasoning inline as <think>...</think>; it is not part of the answer
+            const answer = fullText.replace(/<think>[\s\S]*?(<\/think>|$)/g, (m) => { thinkingChars += m.length; return ''; });
+            return {
+                text: answer,
+                promptTruncated: promptTokens >= RUN.ctx - 8,
+                outputTruncated: last.done_reason === 'length',
+                outputTokens: last.eval_count || 0,
+                outputLimit: body.options.num_predict,
+                thinkingTokens: Math.round(thinkingChars / 4)
+            };
+        }
+
+        // --- CHUNKING ---
+        // Cut on the best boundary near the size limit: blank line, line break, sentence end, then any space.
+        function findBreak(text, start, hardEnd) {
+            const min = start + Math.floor((hardEnd - start) * 0.6);
+            for (const sep of ["\n\n", "\n", ". ", " "]) {
+                const i = text.lastIndexOf(sep, hardEnd - sep.length);
+                if (i >= min) return i + sep.length;
+            }
+            return hardEnd;
+        }
+
+        function chunkText(text, size, overlap) {
+            const chunks = [];
+            let start = 0;
+            while (start < text.length) {
+                let end = Math.min(start + size, text.length);
+                if (end < text.length) end = findBreak(text, start, end);
+                if (text.slice(start, end).trim()) chunks.push({ start, end, text: text.slice(start, end) });
+                if (end >= text.length) break;
+                // start the next chunk a little earlier so nothing straddling the cut is lost,
+                // moved forward to a clean line/sentence/word start
+                let next = end - overlap;
+                if (next <= start) next = end;
+                else {
+                    const limit = next + Math.floor((end - next) / 2);
+                    for (const sep of ["\n", ". ", " "]) {
+                        const i = text.indexOf(sep, next);
+                        if (i !== -1 && i + sep.length <= limit) { next = i + sep.length; break; }
+                    }
+                }
+                start = next;
+            }
+            return chunks;
+        }
+
+        // --- FACT CHECKING ---
+        // Compare text loosely on things PDFs and models routinely change: case, spacing, quote and dash styles.
+        function norm(s) {
+            return String(s).normalize('NFKC')
+                .replace(/[‘’‚′`]/g, "'")
+                .replace(/[“”„″]/g, '"')
+                .replace(/[‐-―−]/g, '-')
+                .replace(/­/g, '')
+                .replace(/\s+/g, ' ').trim().toLowerCase();
+        }
+
+        // True if the quote appears in the text. A quote the model shortened with "..." passes
+        // only if every piece appears, in order.
+        function quoteFound(quote, hayNorm) {
+            const q = norm(quote).replace(/^["'\s]+|["'\s.,;:]+$/g, '');
+            if (q.length < 4) return false;
+            if (hayNorm.includes(q)) return true;
+            const pieces = q.split(/\s*\.{3,}\s*/).filter(p => p.length >= 4);
+            if (!pieces.length || pieces.join('') === q) return false;
+            let pos = 0;
+            for (const p of pieces) {
+                const i = hayNorm.indexOf(p, pos);
+                if (i === -1) return false;
+                pos = i + p.length;
+            }
+            return true;
+        }
+
+        // Read the extraction answer. Models do not always honour the requested shape, so this also accepts
+        // a code-fenced answer, a bare list, or facts buried in other text, and keeps whatever arrived
+        // complete when the answer was cut off. partial = it was not one clean JSON document.
+        function parseFacts(text) {
+            const clean = (arr) => arr
+                .filter(f => f && typeof f.statement === 'string' && f.statement.trim())
+                .map(f => ({ statement: f.statement.trim(), quote: typeof f.quote === 'string' ? f.quote.trim() : '', basis: f.basis === 'inferred' ? 'inferred' : 'stated' }));
+            const asList = (json) => Array.isArray(json) ? json : (json && Array.isArray(json.facts) ? json.facts : (json && typeof json.statement === 'string' ? [json] : null));
+            const body = text.trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '');
+            try {
+                const arr = asList(JSON.parse(body));
+                if (arr) return { facts: clean(arr), partial: false, failed: false };
+            } catch (e) {}
+            // Otherwise collect every complete {...} object that looks like a fact, wherever it sits.
+            const found = [], starts = [];
+            let inStr = false, esc = false;
+            for (let i = 0; i < body.length; i++) {
+                const ch = body[i];
+                if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+                if (ch === '"') inStr = true;
+                else if (ch === '{') starts.push(i);
+                else if (ch === '}' && starts.length) {
+                    const piece = body.slice(starts.pop(), i + 1);
+                    if (piece.includes('"statement"')) { try { const o = JSON.parse(piece); if (typeof o.statement === 'string') found.push(o); } catch (e) {} }
+                }
+            }
+            const facts = clean(found);
+            return { facts, partial: true, failed: facts.length === 0 };
+        }
+
+        // --- PIPELINE ---
+        function getSource() {
+            if (currentDoc) return currentDoc;
+            const text = $('sourceInput').value.trim();
+            return text ? { name: "Pasted text", text, pages: null } : null;
+        }
+
+        // Settle the context window and chunk size for this run, and the key its checkpoint is saved under.
+        async function planRun(objective, src) {
+            RUN.ctx = CONFIG.numCtx;
+            RUN.warnings = [];
+            const limit = await modelContextLimit(RUN.model);
+            if (limit && limit < RUN.ctx) {
+                RUN.warnings.push(`${RUN.model} supports a context of ${limit} tokens, so that was used instead of the configured ${RUN.ctx}.`);
+                RUN.ctx = limit;
+            }
+            const room = Math.floor(RUN.ctx * 0.5 * RUN.cpt) - ACTIVE_PROMPTS.extraction.length - objective.length;
+            if (room < 500) throw new Error(`A context window of ${RUN.ctx} tokens is too small for the extraction prompt and objective. Raise Context Window in Ollama Settings.`);
+            RUN.chunkSize = CONFIG.chunkSize;
+            if (room < CONFIG.chunkSize) {
+                RUN.chunkSize = room;
+                RUN.warnings.push(`Chunk size was reduced from ${CONFIG.chunkSize} to ${room} characters so each chunk fits the ${RUN.ctx}-token context window.`);
+            }
+            RUN.overlap = Math.min(CONFIG.overlap, Math.floor(RUN.chunkSize / 4));
+            RUN.key = [cyrb53(src.text), src.text.length, cyrb53([objective, RUN.model, RUN.chunkSize, RUN.overlap, CONFIG.think, ACTIVE_PROMPTS.extraction].join('\u0001'))].join(':');
         }
 
         async function initiateRLM() {
-            const source = currentExtractedText || document.getElementById('sourceInput').value.trim();
-            const objective = document.getElementById('objectiveInput').value.trim();
+            const source = getSource();
+            const objective = $('objectiveInput').value.trim();
             if (!source || !objective) return alert("Missing data.");
+            readConfigFromForm();
+            if (!CONFIG.model) { openSettings(); return showToast("Choose a model in Ollama Settings first."); }
 
-            document.getElementById('runBtn').disabled = true;
-            document.getElementById('statusIndicator').classList.remove('hidden');
-            document.getElementById('statusText').innerText = "Objective Refiner Active...";
+            RUN = { abort: new AbortController(), active: false, model: CONFIG.model, ctx: CONFIG.numCtx, cpt: 3, warnings: [] };
+            const run = RUN;
+            setBusy(true, "Objective Refiner Active...");
 
             try {
-                const refinerRes = await callOllama(ACTIVE_PROMPTS.refiner.replace('{OBJECTIVE}', objective));
-                if (refinerRes.includes("OBJECTIVE_OK")) { startRun(objective, source); } 
-                else {
-                    const suggestion = refinerRes.split('Suggestion:')[1]?.trim() || refinerRes;
-                    document.getElementById('refinementCard').classList.remove('hidden');
-                    document.getElementById('suggestionText').innerText = refinerRes;
-                    document.getElementById('applyRefinementBtn').onclick = () => { document.getElementById('objectiveInput').value = suggestion; document.getElementById('refinementCard').classList.add('hidden'); startRun(suggestion, source); };
-                    document.getElementById('skipRefinementBtn').onclick = () => { document.getElementById('refinementCard').classList.add('hidden'); startRun(objective, source); };
-                }
-            } catch (e) { startRun(objective, source); }
+                await planRun(objective, source);
+                const checkpoint = await getSetting("checkpoint").catch(() => null);
+                if (checkpoint && checkpoint.key === RUN.key) return startRun(objective, source);   // resuming: skip the refiner
+
+                let refinerRes = null;
+                try { refinerRes = (await callOllama(fill(ACTIVE_PROMPTS.refiner, { OBJECTIVE: objective }))).text; }
+                catch (e) { if (e.name === 'AbortError') throw e; }   // the refiner is optional; a real fault will surface in the run
+                if (refinerRes === null || refinerRes.includes("OBJECTIVE_OK")) return startRun(objective, source);
+
+                const suggestion = refinerRes.split('Suggestion:')[1]?.trim() || refinerRes;
+                $('refinementCard').classList.remove('hidden');
+                $('suggestionText').innerText = refinerRes;
+                $('statusText').innerText = "Waiting for your choice...";
+                const go = async (obj) => {
+                    $('refinementCard').classList.add('hidden');
+                    try { await planRun(obj, source); } catch (e) { if (RUN === run) { setBusy(false); RUN = null; } if (e.name !== 'AbortError') showToast(e.message); return; }
+                    startRun(obj, source);
+                };
+                $('applyRefinementBtn').onclick = () => { $('objectiveInput').value = suggestion; go(suggestion); };
+                $('skipRefinementBtn').onclick = () => go(objective);
+            } catch (e) {
+                if (RUN === run) { setBusy(false); RUN = null; }
+                if (e.name !== 'AbortError') showToast(e.message);
+            }
+        }
+
+        function stripConfidence(text) {
+            return text.replace(/\n+[^\n]*\bConfidence:[^\n]*(\n[^\n]+)?\s*$/i, '').trim();
+        }
+
+        function pagesLabel(src, start, end) {
+            if (!src.pages) return null;
+            const hit = src.pages.filter(p => p.start < end && p.end > start);
+            if (!hit.length) return null;
+            const a = hit[0].page, b = hit[hit.length - 1].page;
+            return a === b ? `p.${a}` : `pp.${a}-${b}`;
         }
 
         async function startRun(objective, source) {
-            document.getElementById('statusText').innerText = "Extraction Active...";
-            const chunkSize = parseInt(document.getElementById('chunkSize').value) || 6000;
-            const activeModel = document.getElementById('modelSelect').value;
-            const welcome = document.getElementById('welcomeScreen');
-            const activeRes = document.getElementById('activeResponse');
-            const outputArea = document.getElementById('outputArea');
-            const logLabel = document.getElementById('stepLabel');
-            const bar = document.getElementById('progressBar');
+            const run = RUN;
+            run.active = true;
+            setBusy(true, "Extraction Active...");
+            const welcome = $('welcomeScreen');
+            const activeRes = $('activeResponse');
+            const logLabel = $('stepLabel');
+            const bar = $('progressBar');
 
             welcome.classList.add('hidden');
             activeRes.classList.remove('hidden');
-            document.getElementById('programmaticProgress').classList.remove('hidden');
+            $('programmaticProgress').classList.remove('hidden');
+            bar.style.width = "0";
 
             activeRes.innerHTML = `
                 <div class="mb-12 p-6 glass rounded-2xl border-l-4 border-blue-500 shadow-xl">
-                    <div class="text-[10px] uppercase font-bold text-slate-500 mb-1">Active Model: ${activeModel}</div>
-                    <div class="text-lg font-medium text-slate-100">${objective}</div>
-                    <div class="text-[10px] font-mono text-blue-400 mt-2 italic">Status: Sequential Fact Extraction...</div>
+                    <div class="text-[10px] uppercase font-bold text-slate-500 mb-1">Active Model: ${escapeHtml(run.model)} · Context ${run.ctx} tokens</div>
+                    <div class="text-lg font-medium text-slate-100">${escapeHtml(objective)}</div>
+                    <div class="text-[10px] font-mono text-blue-400 mt-2 italic" id="runStatus">Status: Sequential Fact Extraction...</div>
                 </div>
                 <div id="logTrace" class="space-y-4 mb-8"></div>
-                <div id="auditPhase" class="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-8 hidden"></div>
-                <div id="finalReasoning" class="prose prose-invert max-w-none text-slate-300 pt-8 border-t border-slate-800 hidden"></div>
+                <div id="finalReasoning" class="pt-8 border-t border-slate-800 hidden"></div>
             `;
 
-            try {
-                const chunks = [];
-                for (let i = 0; i < source.length; i += chunkSize) chunks.push(source.substring(i, i + chunkSize));
+            const addCard = (badge, badgeCls, note) => {
+                const block = document.createElement('div');
+                block.className = 'p-4 glass rounded-xl border-l-2 border-slate-700 bg-slate-900/30';
+                block.innerHTML = `<span class="phase-badge ${badgeCls}">${escapeHtml(badge)}</span> <span class="text-[10px] text-slate-500 ml-2" data-f="note"></span><div class="mt-2 text-sm text-slate-400 typing whitespace-pre-wrap" data-f="body">...</div>`;
+                block.querySelector('[data-f="note"]').textContent = note || '';
+                $('logTrace').appendChild(block);
+                block.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                return { note: block.querySelector('[data-f="note"]'), body: block.querySelector('[data-f="body"]') };
+            };
+            const settle = (card, html) => { card.body.classList.remove('typing', 'whitespace-pre-wrap'); card.body.innerHTML = html; };
+            const stream = (card) => (c, full) => { card.body.textContent = full; };
+            const thinking = (card) => (tokens) => { card.body.textContent = `Thinking... about ${tokens} tokens`; };
+            const warn = (msg) => { run.warnings.push(msg); };
+            let extractionDone = 0;
 
-                let allFacts = "";
+            try {
+                const chunks = chunkText(source.text, run.chunkSize, run.overlap);
+                const checkpoint = await getSetting("checkpoint").catch(() => null);
+                const saved = checkpoint && checkpoint.key === run.key ? checkpoint.done : {};
+                const docNorm = norm(source.text);
+                const pageNorm = source.pages ? source.pages.map(p => ({ page: p.page, start: p.start, end: p.end, text: norm(source.text.slice(p.start, p.end)) })) : null;
+
+                // ---- 1. Extraction: one fresh call per chunk ----
+                const facts = [];
+                const seen = new Set();
+                let failedChunks = 0;
+                const gaps = { failed: [], incomplete: [] };
                 for (let i = 0; i < chunks.length; i++) {
                     const id = i + 1;
+                    const chunk = chunks[i];
+                    const where = pagesLabel(source, chunk.start, chunk.end) || `chunk ${id}`;
                     logLabel.innerText = `Chunk ${id}/${chunks.length}`;
-                    bar.style.width = `${(id / chunks.length) * 80}%`;
+                    bar.style.width = `${(id / chunks.length) * 70}%`;
+                    const chunkName = source.pages ? `Chunk ${id} (${where})` : `Chunk ${id}`;
+                    const card = addCard(`CHUNK ${id}`, 'bg-blue-600/20 text-blue-400', source.pages ? where : '');
 
-                    const block = document.createElement('div');
-                    block.className = 'p-4 glass rounded-xl border-l-2 border-slate-700 bg-slate-900/30';
-                    block.innerHTML = `<span class="phase-badge bg-blue-600/20 text-blue-400">CHUNK ${id}</span> <span class="typing ml-2 text-sm text-slate-400" id="chunk-txt-${id}">...</span>`;
-                    document.getElementById('logTrace').appendChild(block);
-                    block.scrollIntoView({ behavior: 'smooth' });
+                    let rec = saved[i];
+                    if (rec) {
+                        card.note.textContent += (card.note.textContent ? ' · ' : '') + 'restored from saved progress';
+                    } else {
+                        const res = await callOllama(fill(ACTIVE_PROMPTS.extraction, { OBJECTIVE: objective, CHUNK: chunk.text }), {
+                            format: FACT_SCHEMA,
+                            onThink: (tokens) => { card.body.textContent = `Thinking... about ${tokens} tokens`; },
+                            onChunk: (c, full) => { card.body.textContent = `Extracting... ${(full.match(/"statement"\s*:/g) || []).length} facts so far`; }
+                        });
+                        const parsed = parseFacts(res.text);
+                        rec = { facts: parsed.facts, failed: parsed.failed, incomplete: false, notes: [], raw: '' };
+                        const thought = res.thinkingTokens ? `, about ${res.thinkingTokens} of them thinking` : '';
+                        const room = `the model used all of its output room (${res.outputTokens} of ${res.outputLimit} tokens${thought})`;
+                        const remedy = `Raise Context Window${res.thinkingTokens ? ' or turn Thinking off' : ''} in Ollama Settings.`;
+                        if (res.promptTruncated) { rec.incomplete = true; rec.notes.push(`Chunk ${id}: the prompt filled the ${run.ctx}-token context window and was probably cut short. Lower Chunk Size or raise Context Window.`); }
+                        if (parsed.failed) {
+                            const why = res.outputTruncated ? `${room} before giving a usable answer. ${remedy}`
+                                : (!res.text.trim() ? `the model returned no answer${res.thinkingTokens ? ` after about ${res.thinkingTokens} tokens of thinking` : ''}.`
+                                : `the model's answer was not in the requested JSON form.`);
+                            rec.notes.push(`${chunkName} is not covered: ${why}`);
+                        } else if (res.outputTruncated) {
+                            rec.incomplete = true;
+                            rec.notes.push(`${chunkName} is incomplete: ${room}; ${parsed.facts.length} complete facts were kept. ${remedy}`);
+                        }
+                        // a readable answer in an unexpected wrapper is fine; only show the raw text when something was lost
+                        if (parsed.failed || res.outputTruncated) rec.raw = res.text.slice(0, 6000);
+                        // only clean results are saved, so a rerun tries the others again
+                        if (!rec.failed && !rec.incomplete) {
+                            saved[i] = { facts: rec.facts, failed: false, incomplete: false, notes: [], raw: '' };
+                            await putSetting("checkpoint", { key: run.key, done: saved }).catch(() => {});
+                        }
+                    }
+                    extractionDone = Object.keys(saved).length;
+                    rec.notes.forEach(warn);
+                    if (rec.failed) { failedChunks++; gaps.failed.push(`chunk ${id}${source.pages ? ` (${where})` : ''}`); }
+                    else if (rec.incomplete) gaps.incomplete.push(`chunk ${id}${source.pages ? ` (${where})` : ''}`);
 
-                    const fact = await callOllama(ACTIVE_PROMPTS.extraction.replace('{OBJECTIVE}', objective).replace('{CHUNK}', chunks[i]), (c, f) => {
-                        document.getElementById(`chunk-txt-${id}`).innerHTML = formatDisplay(f);
-                    });
-                    document.getElementById(`chunk-txt-${id}`).classList.remove('typing');
-                    if (!fact.toLowerCase().includes("no relevant content")) allFacts += `## FACT SEGMENT ${id}\n${fact}\n\n`;
+                    // check every quote against the document, in code
+                    const chunkNorm = norm(chunk.text);
+                    const kept = [];
+                    for (const f of rec.facts) {
+                        const dedupeKey = norm(f.statement);
+                        if (seen.has(dedupeKey)) continue;   // the overlap makes neighbours repeat each other
+                        seen.add(dedupeKey);
+                        const found = quoteFound(f.quote, chunkNorm) || quoteFound(f.quote, docNorm);
+                        let loc = where;
+                        if (found && pageNorm) {
+                            const onPage = pageNorm.find(p => p.start < chunk.end && p.end > chunk.start && quoteFound(f.quote, p.text)) || pageNorm.find(p => quoteFound(f.quote, p.text));
+                            if (onPage) loc = `p.${onPage.page}`;
+                        }
+                        const fact = { id: `F${facts.length + 1}`, statement: f.statement, quote: f.quote, status: f.basis === 'inferred' ? 'inferred' : (found ? 'verified' : 'unmatched'), loc };
+                        facts.push(fact); kept.push(fact);
+                    }
+                    settle(card, (rec.notes.length ? `<div class="text-xs text-amber-400 mb-2">${rec.notes.map(escapeHtml).join('<br>')}</div>` : '')
+                        + (rec.raw ? `<details class="mb-2"><summary class="cursor-pointer text-xs text-slate-500">Show the model's raw answer</summary><pre class="mt-2 p-3 bg-slate-950 rounded-lg text-xs text-slate-400 whitespace-pre-wrap break-words max-h-64 overflow-y-auto custom-scrollbar">${escapeHtml(rec.raw)}</pre></details>` : '')
+                        + (rec.failed ? '' : factsHtml(kept)));
                 }
 
-                logLabel.innerText = "Consolidating...";
-                document.getElementById('statusText').innerText = "Consolidation Active...";
-                const draft = await callOllama(ACTIVE_PROMPTS.consolidation.replace('{OBJECTIVE}', objective).replace('{FACTS}', allFacts));
+                const stats = {
+                    facts: facts.length, chunks: chunks.length, failedChunks,
+                    verified: facts.filter(f => f.status === 'verified').length,
+                    inferred: facts.filter(f => f.status === 'inferred').length,
+                    unmatched: facts.filter(f => f.status === 'unmatched').length
+                };
 
-                logLabel.innerText = "Audit Pass...";
-                document.getElementById('statusText').innerText = "Verification Active...";
-                document.getElementById('auditPhase').classList.remove('hidden');
-                document.getElementById('auditPhase').innerHTML = `<span class="phase-badge bg-amber-500 text-black">Verification Pass</span> <div class="mt-2 text-sm text-amber-200/70 italic typing" id="auditTxt">Checking for dropped data...</div>`;
-                
-                const auditRes = await callOllama(ACTIVE_PROMPTS.audit.replace('{DRAFT}', draft).replace('{FACTS}', allFacts), (c, f) => {
-                    document.getElementById('auditTxt').innerHTML = formatDisplay(f);
-                });
-                document.getElementById('auditTxt').classList.remove('typing');
+                // ---- 2. Consolidate and audit, in batches sized to the context window ----
+                let report;
+                if (!facts.length) {
+                    report = (gaps.failed.length || gaps.incomplete.length)
+                        ? "No facts could be extracted, so there is no report. See the warnings for what went wrong with each chunk."
+                        : "No facts relevant to this objective were found in the document.";
+                } else {
+                    const oneLine = (t) => t.replace(/\s+/g, ' ').trim();
+                    const lines = facts.map(f => `[${f.id}] (${f.loc}, ${f.status.toUpperCase()}) ${oneLine(f.statement)}` + (f.quote ? ` | Quote: "${oneLine(f.quote)}"` : ''));
+                    // the model writing the report cannot see what extraction lost unless it is told
+                    const coverage = (gaps.failed.length || gaps.incomplete.length)
+                        ? `[Note to the writer, not one of the facts: these facts do not cover the whole document.`
+                            + (gaps.failed.length ? ` Nothing could be extracted from ${gaps.failed.join(', ')}.` : '')
+                            + (gaps.incomplete.length ? ` Extraction was cut short for ${gaps.incomplete.join(', ')}.` : '')
+                            + ` Open the report with one sentence, in your own words, telling the reader which parts are missing. Do not copy this note into the report. Do not rate confidence HIGH.]\n\n`
+                        : '';
+                    const budget = Math.max(1500, Math.floor(run.ctx * 0.35 * run.cpt) - ACTIVE_PROMPTS.consolidation.length - objective.length);
+                    const batches = [];
+                    let current = [], used = 0;
+                    lines.forEach((line, idx) => {
+                        if (current.length && used + line.length + 1 > budget) { batches.push(current); current = []; used = 0; }
+                        current.push({ line, id: facts[idx].id }); used += line.length + 1;
+                    });
+                    if (current.length) batches.push(current);
 
-                const finalContent = draft + "\n\n" + auditRes;
-                const finalDiv = document.getElementById('finalReasoning');
+                    const parts = [];
+                    for (let b = 0; b < batches.length; b++) {
+                        const batch = batches[b];
+                        const label = batches.length > 1 ? `Part ${b + 1}/${batches.length}` : 'Draft';
+                        const range = `${batch[0].id}-${batch[batch.length - 1].id}`;
+                        const factsText = batch.map(x => x.line).join('\n');
+                        bar.style.width = `${70 + ((b + 0.5) / batches.length) * 25}%`;
+
+                        logLabel.innerText = batches.length > 1 ? `Consolidating ${b + 1}/${batches.length}` : "Consolidating...";
+                        $('statusText').innerText = "Consolidation Active...";
+                        $('runStatus').innerText = "Status: Consolidating facts...";
+                        const draftCard = addCard(label.toUpperCase(), 'bg-indigo-600/20 text-indigo-300', `facts ${range}`);
+                        const d = await callOllama(fill(ACTIVE_PROMPTS.consolidation, { OBJECTIVE: objective, FACTS: coverage + factsText }), { onChunk: stream(draftCard), onThink: thinking(draftCard) });
+                        const draft = d.text.trim();
+                        if (d.promptTruncated) warn(`${label}: the consolidation prompt filled the context window and was probably cut short.`);
+                        if (d.outputTruncated) warn(`${label}: the draft ran out of context window and stops early. Raise Context Window in Ollama Settings.`);
+                        settle(draftCard, `<div class="md text-slate-300">${renderMarkdown(draft)}</div>`);
+
+                        logLabel.innerText = batches.length > 1 ? `Audit ${b + 1}/${batches.length}` : "Audit Pass...";
+                        $('statusText').innerText = "Verification Active...";
+                        $('runStatus').innerText = "Status: Auditing the draft against the facts...";
+                        let corrections = "";
+                        const auditPrompt = fill(ACTIVE_PROMPTS.audit, { DRAFT: draft, FACTS: factsText });
+                        const auditCard = addCard('VERIFICATION PASS', 'bg-amber-500 text-black', `facts ${range}`);
+                        if (estTokens(auditPrompt) > run.ctx - 256) {
+                            warn(`${label}: the audit was skipped because the draft and its facts do not fit the context window together.`);
+                            settle(auditCard, '<span class="text-amber-400 text-xs">Skipped: does not fit the context window.</span>');
+                        } else {
+                            const a = await callOllama(auditPrompt, { onChunk: stream(auditCard), onThink: thinking(auditCard) });
+                            const auditText = a.text.trim();
+                            if (a.promptTruncated || a.outputTruncated) warn(`${label}: the audit ran out of context window, so its result may be incomplete.`);
+                            const clean = /VERIFICATION COMPLETE/i.test(auditText) && !/AUDIT CORRECTIONS/i.test(auditText);
+                            if (!clean && auditText) corrections = /AUDIT CORRECTIONS/i.test(auditText) ? auditText : `### AUDIT CORRECTIONS\n${auditText}`;
+                            settle(auditCard, `<div class="md text-amber-200/80">${renderMarkdown(auditText)}</div>`);
+                        }
+                        parts.push({ draft, corrections, range });
+                    }
+
+                    // ---- 3. One report: merge when it fits, otherwise present the parts as they are ----
+                    const inParts = () => parts.length === 1
+                        ? parts[0].draft + "\n\n" + parts[0].corrections
+                        : parts.map((p, i) => `## Part ${i + 1} of ${parts.length} (facts ${p.range})\n\n${stripConfidence(p.draft)}${p.corrections ? "\n\n" + p.corrections : ""}`).join("\n\n");
+
+                    if (parts.length === 1 && !parts[0].corrections) {
+                        report = parts[0].draft;
+                    } else {
+                        const drafts = parts.map((p, i) => `--- PART ${i + 1} ---\n${stripConfidence(p.draft)}${p.corrections ? "\n\n" + p.corrections : ""}`).join("\n\n");
+                        const mergePrompt = fill(ACTIVE_PROMPTS.merge, { OBJECTIVE: objective, DRAFTS: coverage + drafts });
+                        report = null;
+                        if (estTokens(mergePrompt) > run.ctx * 0.5) {
+                            warn(`The ${parts.length} parts are too long to merge inside a ${run.ctx}-token context window, so the report is presented in parts. Raise Context Window in Ollama Settings for a single merged report.`);
+                        } else {
+                            logLabel.innerText = "Merging...";
+                            $('statusText').innerText = "Merge Active...";
+                            $('runStatus').innerText = "Status: Merging into one report...";
+                            const mergeCard = addCard('MERGE', 'bg-emerald-600/20 text-emerald-300', parts.length > 1 ? `${parts.length} parts` : 'applying audit corrections');
+                            const m = await callOllama(mergePrompt, { onChunk: stream(mergeCard), onThink: thinking(mergeCard) });
+                            const merged = m.text.trim();
+                            // applying corrections to a single draft should never make it much shorter
+                            const shrank = parts.length === 1 && merged.length < parts[0].draft.length * 0.8;
+                            if (m.promptTruncated || m.outputTruncated || shrank || !merged) {
+                                warn(parts.length === 1
+                                    ? "Working the audit corrections into the draft lost content, so the original draft is shown with the corrections listed after it."
+                                    : "The merged report was cut short by the context window, so the report is presented in parts.");
+                                settle(mergeCard, '<span class="text-amber-400 text-xs">Discarded: the merged text was incomplete.</span>');
+                            } else {
+                                report = merged;
+                                settle(mergeCard, '<span class="text-xs text-slate-500">Merged. See the final result below.</span>');
+                            }
+                        }
+                        if (report === null) report = inParts();
+                    }
+                }
+
+                // ---- 4. Final result ----
+                const session = {
+                    source: source.text.substring(0, 10000), objective, result: report, modelName: run.model,
+                    timestamp: new Date().toISOString(), facts, stats, warnings: run.warnings.slice()
+                };
+                const finalDiv = $('finalReasoning');
                 finalDiv.classList.remove('hidden');
-                finalDiv.innerHTML = `<div class="flex items-center justify-between mb-6"><span class="phase-badge bg-emerald-600 text-white">Final Verified Result</span><div class="flex-1 border-t border-slate-800 mx-4"></div></div><div id="finalTxt"></div>`;
-                document.getElementById('finalTxt').innerHTML = formatDisplay(finalContent);
-
+                finalDiv.innerHTML = `<div class="flex items-center justify-between mb-6" id="finalHeader"><span class="phase-badge bg-emerald-600 text-white">Final Result</span><div class="flex-1 border-t border-slate-800 mx-4"></div></div>${reportViewHtml(session)}`;
+                $('finalHeader').appendChild(exportButtons(session, true));
+                $('runStatus').innerText = "Status: Complete";
                 logLabel.innerText = "Complete"; bar.style.width = "100%";
-                await saveSession(source, objective, finalContent, activeModel);
+                finalDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-                const expBtn = document.createElement('button');
-                expBtn.onclick = () => exportReport(objective, finalContent, activeModel);
-                expBtn.className = "bg-emerald-600/20 text-[10px] px-3 py-1 rounded border border-emerald-500/30 transition-all mr-2";
-                expBtn.innerText = "Export MD";
-                finalDiv.querySelector('.flex').appendChild(expBtn);
+                await saveSession(session);
+                await deleteSetting("checkpoint").catch(() => {});
 
-                const pdfBtn = document.createElement('button');
-                pdfBtn.onclick = () => exportPDF(objective, finalContent, activeModel);
-                pdfBtn.className = "bg-red-600/20 text-[10px] px-3 py-1 rounded border border-red-500/30 transition-all";
-                pdfBtn.innerText = "Export PDF";
-                finalDiv.querySelector('.flex').appendChild(pdfBtn);
-
-            } catch (e) { welcome.classList.remove('hidden'); welcome.innerHTML = `<div class="text-red-400 py-10">Error: ${e.message}</div>`; }
-            finally { document.getElementById('runBtn').disabled = false; document.getElementById('statusIndicator').classList.add('hidden'); }
+            } catch (e) {
+                const cancelled = e.name === 'AbortError';
+                document.querySelectorAll('#logTrace .typing').forEach(el => { el.classList.remove('typing'); el.textContent = "Stopped before this step finished."; });
+                const note = document.createElement('div');
+                note.className = `p-4 rounded-xl border text-sm ${cancelled ? 'bg-slate-800/60 border-slate-700 text-slate-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`;
+                note.textContent = (cancelled ? "Cancelled." : `Error: ${e.message}`) +
+                    (extractionDone ? ` Extraction results for ${extractionDone} chunk${extractionDone === 1 ? '' : 's'} are saved. Run again with the same document, objective and settings to pick up from there.` : '');
+                activeRes.appendChild(note);
+                note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                if ($('runStatus')) $('runStatus').innerText = cancelled ? "Status: Cancelled" : "Status: Failed";
+                logLabel.innerText = cancelled ? "Cancelled" : "Failed";
+            }
+            finally {
+                if (RUN === run) { setBusy(false); RUN = null; }
+            }
         }
 
-        window.onload = () => { fetchModels(); if(window.innerWidth >= 1024) { isSidebarOpen = true; document.getElementById('sidebarContainer').style.width = "20rem"; } else { isSidebarOpen = false; document.getElementById('sidebarContainer').style.width = "0"; document.getElementById('sidebarOpenBtn').classList.remove('hidden'); } };
+        async function init() {
+            if (window.innerWidth >= 1024) { isSidebarOpen = true; $('sidebarContainer').style.width = "20rem"; }
+            else { isSidebarOpen = false; $('sidebarContainer').style.width = "0"; $('sidebarOpenBtn').classList.remove('hidden'); }
+
+            db = await openDb();
+            try {
+                const prompts = await getSetting("system_prompts");
+                if (prompts) ACTIVE_PROMPTS = { ...DEFAULTS, ...prompts };
+                const config = await getSetting("config");
+                if (config) {
+                    CONFIG = { ...CONFIG_DEFAULTS, ...config, v: 2 };
+                    // 8192 was the old default, saved automatically on every run, and is too small for reasoning models
+                    if (!config.v && config.numCtx === 8192) { CONFIG.numCtx = 16384; putSetting("config", CONFIG).catch(() => {}); }
+                }
+            } catch (e) {}
+            applyConfigToForm();
+            $('modelSelect').onchange = () => { CONFIG.model = $('modelSelect').value; updateModelBadge(); putSetting("config", CONFIG).catch(() => {}); };
+            loadHistory();
+            fetchModels();
+        }
+        window.onload = init;
     </script>
 </body>
 </html>
