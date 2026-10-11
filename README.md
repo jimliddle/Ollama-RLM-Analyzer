@@ -37,7 +37,7 @@ This approach is analogous to this.
 
 ## Running it
 
-All state is stored in the browser and the app will try and detect a running local ollama instance. The App can be run directly at: https://jimliddle.github.io/Ollama-RLM-Analyzer/
+All state is stored in the browser and the app will try and detect a running local ollama instance. The App can be downloaded (it is just a single index.html file) or run directly at: https://jimliddle.github.io/Ollama-RLM-Analyzer/
 
 For the web page to detect Ollama and bypass CORS you need OLLAMA_ORIGINS to be set ie.
 
@@ -59,12 +59,12 @@ A few things to know:
 The page has loaded, but either Ollama refused the request or the browser blocked it. Check in this order:
 
 1. **Is Ollama running?** Open http://localhost:11434 in the browser. It should say "Ollama is running".
-2. **Does Ollama allow the page?** Run this in a terminal:
+2. **Does Ollama allow the page?** If you are running the page directly from my Github you can run this in a terminal:
 
    <code>curl -i -H "Origin: https://jimliddle.github.io" http://localhost:11434/api/tags</code>
 
    A 403 means `OLLAMA_ORIGINS` is not set for the copy of Ollama that is running. Set it and restart Ollama:
-   - Mac: quit Ollama from the menu bar, run `launchctl setenv OLLAMA_ORIGINS "https://jimliddle.github.io"`, then start it again.
+   - Mac: quit Ollama from the menu bar, run `launchctl setenv OLLAMA_ORIGINS "https://jimliddle.github.io"`, then start it again (this merely lets the hosted web page access the local Ollama. There is no server side state, everything is stored in the browser, so it is still private).
    - Windows: add `OLLAMA_ORIGINS` as a user environment variable, quit Ollama from the system tray, then start it again.
    - Linux with systemd: run `sudo systemctl edit ollama`, add `Environment="OLLAMA_ORIGINS=https://jimliddle.github.io"` under `[Service]`, then `sudo systemctl restart ollama`.
 3. **Does the browser allow it?** If the curl command returns 200 and the page still fails, the browser is stopping a public web page from reaching localhost. Brave blocks this by default and recent versions of Chrome ask for permission to access the local network. Allow it for the site in the browser's site settings, or run a local copy as described above.
