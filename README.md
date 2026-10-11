@@ -54,6 +54,23 @@ A few things to know:
 - To run a local copy without setting anything, serve the folder with `python3 -m http.server` and open `http://localhost:8000`. Ollama accepts localhost origins by default. Opening `index.html` by double-clicking it does need `OLLAMA_ORIGINS="*"`.
 - Structured extraction needs Ollama 0.5 or later.
 
+### If the model list says "Failed to fetch"
+
+The page has loaded, but either Ollama refused the request or the browser blocked it. Check in this order:
+
+1. **Is Ollama running?** Open http://localhost:11434 in the browser. It should say "Ollama is running".
+2. **Does Ollama allow the page?** Run this in a terminal:
+
+   <code>curl -i -H "Origin: https://jimliddle.github.io" http://localhost:11434/api/tags</code>
+
+   A 403 means `OLLAMA_ORIGINS` is not set for the copy of Ollama that is running. Set it and restart Ollama:
+   - Mac: quit Ollama from the menu bar, run `launchctl setenv OLLAMA_ORIGINS "https://jimliddle.github.io"`, then start it again.
+   - Windows: add `OLLAMA_ORIGINS` as a user environment variable, quit Ollama from the system tray, then start it again.
+   - Linux with systemd: run `sudo systemctl edit ollama`, add `Environment="OLLAMA_ORIGINS=https://jimliddle.github.io"` under `[Service]`, then `sudo systemctl restart ollama`.
+3. **Does the browser allow it?** If the curl command returns 200 and the page still fails, the browser is stopping a public web page from reaching localhost. Brave blocks this by default and recent versions of Chrome ask for permission to access the local network. Allow it for the site in the browser's site settings, or run a local copy as described above.
+
+After any of these, click the refresh button next to the Endpoint URL in Ollama Settings.
+
 ## Settings
 
 Under Ollama Settings:
